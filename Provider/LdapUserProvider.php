@@ -21,7 +21,12 @@ class LdapUserProvider implements UserProviderInterface
     /**
      * @var \IMAG\LdapBundle\Manager\LdapManagerUserInterface
      */
-    private $ldapManager;
+    private $ldapManager1;
+
+    /**
+     * @var \IMAG\LdapBundle\Manager\LdapManagerUserInterface
+     */
+    private $ldapManager2;
 
     /**
      * @var string
@@ -37,13 +42,15 @@ class LdapUserProvider implements UserProviderInterface
     /**
      * Constructor
      *
-     * @param \IMAG\LdapBundle\Manager\LdapManagerUserInterface $ldapManager
+     * @param \IMAG\LdapBundle\Manager\LdapManagerUserInterface $ldapManager1
+     * @param \IMAG\LdapBundle\Manager\LdapManagerUserInterface $ldapManager2
      * @param bool|string                                       $bindUsernameBefore
      * @param string                                            $userClass
      */
-    public function __construct(LdapManagerUserInterface $ldapManager, $bindUsernameBefore = false, $userClass)
+    public function __construct(LdapManagerUserInterface $ldapManager1, LdapManagerUserInterface $ldapManager2, $bindUsernameBefore = false, $userClass)
     {
-        $this->ldapManager = $ldapManager;
+        $this->ldapManager1 = $ldapManager1;
+        $this->ldapManager2 = $ldapManager2;
         $this->bindUsernameBefore = $bindUsernameBefore;
         $this->userClass = $userClass;
     }
@@ -76,11 +83,7 @@ class LdapUserProvider implements UserProviderInterface
             throw new UnsupportedUserException(sprintf('Instances of "%s" are not supported.', get_class($user)));
         }
 
-        if (false === $this->bindUsernameBefore) {
-            return $this->loadUserByUsername($user->getUsername());
-        } else {
-            return $this->bindedSearch($user->getUsername());
-        }
+        return $this->loadUserByUsername($user->getUsername());
     }
 
     /**
@@ -101,11 +104,24 @@ class LdapUserProvider implements UserProviderInterface
 
     private function anonymousSearch($username)
     {
-        $this->ldapManager->exists($username);
+        // Throw the exception if the username is not found.
+        $ldapManager1 = $this->ldapManager1;
+        $ldapManager2 = $this->ldapManager2;
 
-        $lm = $this->ldapManager
-            ->setUsername($username)
-            ->doPass();
+        if (!$ldapManager1->exists($username) && !$ldapManager2->exists($username)) {
+            throw new UsernameNotFoundException(sprintf('User "%s" not found in both LDAP servers', $username));
+        }
+
+        $lm = null;
+        if ($ldapManager1->exists($username)) {
+            $lm = $ldapManager1
+                ->setUsername($username)
+                ->doPass();
+        } elseif ($ldapManager2->exists($username)) {
+            $lm = $ldapManager2
+                ->setUsername($username)
+                ->doPass();
+        }
 
         $ldapUser = new $this->userClass;
 
@@ -122,10 +138,5 @@ class LdapUserProvider implements UserProviderInterface
             ;
 
         return $ldapUser;
-    }
-
-    private function bindedSearch($username)
-    {
-        return $this->anonymousSearch($username);
     }
 }
