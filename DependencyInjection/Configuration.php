@@ -11,17 +11,24 @@ class Configuration implements ConfigurationInterface
   {
     $treeBuilder = new TreeBuilder();
     $rootNode = $treeBuilder->root('imag_ldap');
+
     $rootNode
         ->children()
-            ->append($this->addClientNode())
-            ->append($this->addUserNode())
+            ->arrayNode('connections')  // Définition d'un tableau pour les connexions LDAP
+                ->useAttributeAsKey('name')  // Utilisation du nom de la connexion (ldap1, ldap2)
+                ->prototype('array')           // Chaque élément de ce tableau sera une configuration d'une connexion
+                    ->children()
+                        ->append($this->addClientNode())
+                        ->append($this->addUserNode())
+                    ->end()
+                ->end()
+            ->end()
+
             ->append($this->addRoleNode())
             ->scalarNode('user_class')
               ->defaultValue("IMAG\LdapBundle\User\LdapUser")
             ->end()
-        ->end()
-        ;
-
+        ->end();
     return $treeBuilder;
   }
 
