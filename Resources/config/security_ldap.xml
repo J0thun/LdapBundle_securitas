@@ -19,28 +19,46 @@
     </service>
 
     <service id="imag_ldap.security.user.provider" class="%imag_ldap.security.user.provider.class%">
-      <argument type="service" id="imag_ldap.ldap_manager" />
+      <argument type="service" id="imag_ldap.ldap_manager_ldap1" />
+      <argument type="service" id="imag_ldap.ldap_manager_ldap2" />
       <argument>%imag_ldap.authentication.bind_username_before%</argument>
       <argument>%imag_ldap.model.user_class%</argument>
     </service>
 
-    <service id="imag_ldap.ldap_connection" class="%imag_ldap.ldap_connection.class%" public="false">
+    <!-- <service id="imag_ldap.ldap_connection" class="%imag_ldap.ldap_connection.class%" public="false">
       <argument>%imag_ldap.ldap_connection.params%</argument>
+      <tag name="monolog.logger" channel="ldap_connection" />
+      <argument type="service" id="logger" />
+    </service> -->
+    <service id="imag_ldap.ldap_connection_ldap1" class="%imag_ldap.ldap_connection.class%" public="false">
+      <argument>%imag_ldap.ldap_connection_ldap1.params%</argument>
+      <tag name="monolog.logger" channel="ldap_connection" />
+      <argument type="service" id="logger" />
+    </service>
+    <service id="imag_ldap.ldap_connection_ldap2" class="%imag_ldap.ldap_connection.class%" public="false">
+      <argument>%imag_ldap.ldap_connection_ldap2.params%</argument>
       <tag name="monolog.logger" channel="ldap_connection" />
       <argument type="service" id="logger" />
     </service>
 
-    <service id="imag_ldap.ldap_manager" class="%imag_ldap.ldap_manager.class%">
+    <!-- <service id="imag_ldap.ldap_manager" class="%imag_ldap.ldap_manager.class%">
       <argument type="service" id="imag_ldap.ldap_connection" />
+    </service> -->
+    <service id="imag_ldap.ldap_manager_ldap1" class="%imag_ldap.ldap_manager.class%">
+      <argument type="service" id="imag_ldap.ldap_connection_ldap1" />
+    </service>
+    <service id="imag_ldap.ldap_manager_ldap2" class="%imag_ldap.ldap_manager.class%">
+      <argument type="service" id="imag_ldap.ldap_connection_ldap2" />
     </service>
 
     <service id="imag_ldap.security.authentication.provider" class="%imag_ldap.security.authentication.provider.class%">
       <argument /> <!-- User Provider -->
       <argument /> <!-- Dao Provider -->
-      <argument type="service" id="imag_ldap.ldap_manager" />
+      <argument type="service" id="imag_ldap.ldap_manager_ldap1" />
       <argument type="service" id="event_dispatcher" on-invalid="null" />
       <argument /> <!-- Provider-key -->
       <argument>%security.authentication.hide_user_not_found%</argument>
+      <argument type="service" id="imag_ldap.ldap_manager_ldap2" />
     </service>
 
     <service id="imag_ldap.security.authentication.listener" class="%imag_ldap.security.authentication.listener.class%" public="false">
