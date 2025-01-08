@@ -2,7 +2,6 @@
 
 namespace IMAG\LdapBundle\Provider;
 
-use IMAG\LdapBundle\Exception\ConnectionException;
 use Symfony\Component\Security\Core\Authentication\Provider\AuthenticationProviderInterface;
 use Symfony\Component\Security\Core\Authentication\Token\UsernamePasswordToken;
 use Symfony\Component\Security\Core\Authentication\Token\TokenInterface;
@@ -22,7 +21,8 @@ class LdapAuthenticationProvider implements AuthenticationProviderInterface
 {
     private
         $userProvider,
-        $ldapManager,
+        $ldapManager1,
+        $ldapManager2,
         $dispatcher,
         $providerKey,
         $hideUserNotFoundExceptions
@@ -35,7 +35,8 @@ class LdapAuthenticationProvider implements AuthenticationProviderInterface
      * to prevent a possible brute-force attack.
      *
      * @param UserProviderInterface    $userProvider
-     * @param LdapManagerUserInterface $ldapManager
+     * @param LdapManagerUserInterface $ldapManager1
+     * @param LdapManagerUserInterface $ldapManager2
      * @param EventDispatcherInterface $dispatcher
      * @param string                   $providerKey
      * @param Boolean                  $hideUserNotFoundExceptions
@@ -43,15 +44,17 @@ class LdapAuthenticationProvider implements AuthenticationProviderInterface
     public function __construct(
         UserProviderInterface $userProvider,
         AuthenticationProviderInterface $daoAuthenticationProvider,
-        LdapManagerUserInterface $ldapManager,
+        LdapManagerUserInterface $ldapManager1,
         EventDispatcherInterface $dispatcher = null,
         $providerKey,
-        $hideUserNotFoundExceptions = true
+        $hideUserNotFoundExceptions = true,
+        LdapManagerUserInterface $ldapManager2
     )
     {
         $this->userProvider = $userProvider;
         $this->daoAuthenticationProvider = $daoAuthenticationProvider;
-        $this->ldapManager = $ldapManager;
+        $this->ldapManager1 = $ldapManager1;
+        $this->ldapManager2 = $ldapManager2;
         $this->dispatcher = $dispatcher;
         $this->providerKey = $providerKey;
         $this->hideUserNotFoundExceptions = $hideUserNotFoundExceptions;
@@ -69,21 +72,18 @@ class LdapAuthenticationProvider implements AuthenticationProviderInterface
         try {
             $user = $this->userProvider
                 ->loadUserByUsername($token->getUsername());
-
-            if ($user instanceof LdapUserInterface) {
-                return $this->ldapAuthenticate($user, $token);
-            }
-            
-        } catch (\Exception $e) {
-            if ($e instanceof ConnectionException || $e instanceof UsernameNotFoundException) {
-                if ($this->hideUserNotFoundExceptions) {
-                    throw new BadCredentialsException('Bad credentials', 0, $e);
-                }
+        } catch (UsernameNotFoundException $userNotFoundException) {
+            if ($this->hideUserNotFoundExceptions) {
+                throw new BadCredentialsException('Bad credentials', 0, $userNotFoundException);
             }
 
-            throw $e;
+            throw $userNotFoundException;
         }
-        
+
+        if ($user instanceof LdapUserInterface) {
+            return $this->ldapAuthenticate($user, $token);
+        }
+
         if ($user instanceof UserInterface) {
             return $this->daoAuthenticationProvider->authenticate($token);
         }
@@ -99,8 +99,8 @@ class LdapAuthenticationProvider implements AuthenticationProviderInterface
      */
     private function ldapAuthenticate(LdapUserInterface $user, TokenInterface $token)
     {
-        $userEvent = new LdapUserEvent($user);
         if (null !== $this->dispatcher) {
+            $userEvent = new LdapUserEvent($user);
             try {
                 $this->dispatcher->dispatch(LdapEvents::PRE_BIND, $userEvent);
             } catch (AuthenticationException $expt) {
@@ -112,12 +112,29 @@ class LdapAuthenticationProvider implements AuthenticationProviderInterface
             }
         }
 
-        $this->bind($user, $token);
+        // Essayez d'abord le premier LDAP manager
+        if ($this->bind($user, $token, $this->ldapManager1)) {
+            return $this->finalizeLdapAuthentication($user, $token, $userEvent);
+        }
 
-        if (null === $user->getDn()) {
+        // Si l'authentification échoue, essayez le deuxième LDAP manager
+        if ($this->bind($user, $token, $this->ldapManager2)) {
+            return $this->finalizeLdapAuthentication($user, $token, $userEvent);
+        }
+            
+        if ($this->hideUserNotFoundExceptions) {
+            throw new BadCredentialsException('Bad credentials');
+        } else {
+            throw new AuthenticationException('The LDAP authentication failed.');
+        }
+    }
+
+    private function finalizeLdapAuthentication(LdapUserInterface $user, TokenInterface $token, LdapUserEvent $userEvent)
+    {
+        if (false === $user->getDn()) {
             $user = $this->reloadUser($user);
         }
-        
+    
         if (null !== $this->dispatcher) {
             $userEvent = new LdapUserEvent($user);
             try {
@@ -126,35 +143,33 @@ class LdapAuthenticationProvider implements AuthenticationProviderInterface
                 if ($this->hideUserNotFoundExceptions) {
                     throw new BadCredentialsException('Bad credentials', 0, $authenticationException);
                 }
+    
                 throw $authenticationException;
             }
         }
-        
+    
         $token = new UsernamePasswordToken($userEvent->getUser(), null, $this->providerKey, $userEvent->getUser()->getRoles());
         $token->setAttributes($token->getAttributes());
-        
+    
         return $token;
     }
-
+    
     /**
      * Authenticate the user with LDAP bind.
      *
      * @param \IMAG\LdapBundle\User\LdapUserInterface  $user
      * @param TokenInterface $token
      *
-     * @return true
+     * @return boolean
      */
-    private function bind(LdapUserInterface $user, TokenInterface $token)
+    private function bind(LdapUserInterface $user, TokenInterface $token, LdapManagerUserInterface $ldapManager)
     {
-        $this->ldapManager
+        $ldapManager
             ->setUsername($user->getUsername())
             ->setPassword($token->getCredentials());
-        
-        $this->ldapManager->auth();
-
-        return true;
+    
+        return (bool)$ldapManager->auth();
     }
-
     /**
      * Reload user with the username
      *
